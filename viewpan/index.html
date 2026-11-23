@@ -1,0 +1,166 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>viewpan</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 0; background: #1b1b1f; color: #ddd; }
+  [hidden] { display: none !important; }  /* (else a display rule below overrides the attribute) */
+  header { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; padding: 10px 16px; background: #26262c; }
+  label { display: flex; gap: 6px; align-items: center; }
+  input[type=range] { width: 130px; }
+  main { display: flex; gap: 12px; padding: 12px 16px; flex-wrap: wrap; }
+  figure { margin: 0; }
+  figcaption { color: #999; margin-bottom: 4px; }
+  figure img { display: block; max-height: 78vh; max-width: 31vw; background: #000; user-select: none; -webkit-user-drag: none; }
+  .view { cursor: grab; }
+  .view:active { cursor: grabbing; }
+  #drop { border: 2px dashed #555; padding: 40px; margin: 16px; text-align: center; color: #888; }
+  #drop.over { border-color: #9cf; color: #9cf; }
+  #status { color: #9a9; font-variant-numeric: tabular-nums; }
+  button { background: #3a3a44; color: #ddd; border: 1px solid #555; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+  #batchbar { display: flex; gap: 10px; align-items: center; padding: 10px 16px; background: #26262c; border-top: 1px solid #333; }
+  #batchpath { width: 60ch; background: #111; color: #ddd; border: 1px solid #555; padding: 4px; }
+  #grid { padding: 12px 16px; overflow-x: auto; }
+  #grid table { border-collapse: collapse; }
+  #grid td, #grid th { padding: 3px; vertical-align: top; text-align: center; color: #999; font-weight: normal; }
+  #grid img { display: block; height: var(--cell, 200px); background: #fff; cursor: zoom-in; }
+  #grid .pair img + img { margin-top: 2px; }
+  #grid .ref img { outline: 2px solid #9cf; }
+  #zoom { position: fixed; inset: 0; background: #000d; display: flex; gap: 8px; align-items: center; justify-content: center; }
+  #zoom img { max-height: 92vh; max-width: 46vw; }
+</style>
+</head>
+<body>
+<header>
+  <input type="file" id="file" accept="image/*">
+  <label>yaw <input type="range" id="yaw" min="-60" max="60" step="1" value="0"><span id="yawv">0°</span></label>
+  <label>pitch <input type="range" id="pitch" min="-40" max="40" step="1" value="0"><span id="pitchv">0°</span></label>
+  <label title="stretches the measured depths about the turning point (1: as measured)">depth
+    <input type="range" id="depth" min="0.2" max="3" step="0.05" value="1"><span id="depthv">1.00×</span></label>
+  <label><input type="checkbox" id="autofix" checked> Difix on release</label>
+  <button id="fixnow">Difix now</button>
+  <button id="reset">reset view</button>
+  <span id="status">no image</span>
+</header>
+<div id="drop">drop an image here (or choose a file above), then drag on a view to turn it</div>
+<main id="main" hidden>
+  <figure><figcaption>photo (Difix's reference)</figcaption><img id="orig"></figure>
+  <figure><figcaption>warped (<span id="holes">0</span>% holes)</figcaption><img id="warp" class="view"></figure>
+  <figure><figcaption>Difix</figcaption><img id="fixed" class="view"></figure>
+  <figure><figcaption>depth</figcaption><img id="depth"></figure>
+</main>
+<div id="batchbar">
+  <b>avatar batch</b>
+  <input id="batchpath" value="/home/moritz/Documents/playingwithclouds/facial-matching/RGBAvatar/output/moritz/v1/look/batch">
+  <button id="batchgo">Difix batch</button>
+  <label><input type="checkbox" id="force"> redo</label>
+  <label>size <input type="range" id="cell" min="100" max="420" value="200"></label>
+  <span id="batchstatus"></span>
+</div>
+<div id="grid"></div>
+<div id="zoom" hidden></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const params = ["yaw", "pitch", "depth"];
+const fmt = { yaw: (v) => `${v}°`, pitch: (v) => `${v}°`, depth: (v) => (+v).toFixed(2) + "×" };
+let info = "";  // (the depth source and its field of view, from the upload)
+let busy = false, pending = null;  // (one request at a time; while busy only the latest one waits)
+
+function query(fix) {
+  const q = new URLSearchParams(Object.fromEntries(params.map((p) => [p, $(p).value])));
+  q.set("fix", fix ? 1 : 0);
+  return q;
+}
+
+async function request(fix) {
+  if (busy) { pending = pending === null ? fix : pending || fix; return; }
+  busy = true;
+  try {
+    const r = await (await fetch("/view?" + query(fix))).json();
+    if (r.error) { $("status").textContent = r.error; return; }
+    $("warp").src = r.warp;
+    $("holes").textContent = (100 * r.holes).toFixed(1);
+    if (r.fixed) $("fixed").src = r.fixed;
+    $("status").textContent = `${info} · warp ${r.warp_ms} ms` + (r.fixed ? ` · Difix ${r.fix_ms} ms` : "");
+  } finally {
+    busy = false;
+    if (pending !== null) { const f = pending; pending = null; request(f); }
+  }
+}
+
+function show() { for (const p of params) $(p + "v").textContent = fmt[p]($(p).value); }
+for (const p of params) {
+  $(p).addEventListener("input", () => { show(); request(false); });
+  $(p).addEventListener("change", () => { if ($("autofix").checked) request(true); });
+}
+$("fixnow").onclick = () => request(true);
+$("reset").onclick = () => { $("yaw").value = 0; $("pitch").value = 0; show(); request($("autofix").checked); };
+
+// drag on a view: 0.3° per pixel
+let drag = null;
+for (const id of ["warp", "fixed"]) {
+  $(id).addEventListener("pointerdown", (e) => {
+    drag = { x: e.clientX, y: e.clientY, yaw: +$("yaw").value, pitch: +$("pitch").value };
+    e.target.setPointerCapture(e.pointerId);
+  });
+  $(id).addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const clamp = (v, el) => Math.max(+el.min, Math.min(+el.max, Math.round(v)));
+    $("yaw").value = clamp(drag.yaw - 0.3 * (e.clientX - drag.x), $("yaw"));
+    $("pitch").value = clamp(drag.pitch + 0.3 * (e.clientY - drag.y), $("pitch"));
+    show(); request(false);
+  });
+  $(id).addEventListener("pointerup", () => { if (drag && $("autofix").checked) request(true); drag = null; });
+}
+
+async function upload(file) {
+  $("status").textContent = "estimating 3D points ...";
+  const body = new FormData();
+  body.append("file", file);
+  const r = await (await fetch("/upload", { method: "POST", body })).json();
+  $("orig").src = r.image; $("depth").src = r.depth; $("fixed").src = r.image;
+  $("main").hidden = false; $("drop").hidden = true;
+  info = `${r.width}×${r.height} · ${r.source}, fov ${r.fov}°`;
+  $("status").textContent = info;
+  request($("autofix").checked);
+}
+$("file").onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
+const drop = $("drop");
+for (const t of [document.body]) {
+  t.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  t.addEventListener("dragleave", () => drop.classList.remove("over"));
+  t.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]); });
+}
+show();
+
+// avatar batch: rows = frames (their real frame first), columns = yaw; each cell: render above, Difix below
+$("cell").oninput = (e) => $("grid").style.setProperty("--cell", e.target.value + "px");
+$("batchgo").onclick = async () => {
+  $("batchstatus").textContent = "running Difix ...";
+  const q = new URLSearchParams({ path: $("batchpath").value, force: $("force").checked ? 1 : 0 });
+  const r = await (await fetch("/batch?" + q)).json();
+  if (r.error) { $("batchstatus").textContent = r.error; return; }
+  $("batchstatus").textContent = `${r.items.length} renders, ${r.fixed_now} new through Difix, ${(r.ms / 1000).toFixed(1)} s`;
+  const head = `<tr><th>frame</th>${r.yaws.map((y) => `<th>${y > 0 ? "+" : ""}${y}°</th>`).join("")}</tr>`;
+  const rows = r.frames.map((f) => {
+    const its = r.items.filter((it) => it.frame === f);
+    const cells = r.yaws.map((y) => {
+      const it = its.find((it) => it.yaw === y);
+      return `<td class="pair"><img src="${it.render}" title="render"><img src="${it.fixed}" title="Difix"></td>`;
+    });
+    return `<tr><td class="ref">${f}<img src="${r.refs[its[0].ref]}" title="real frame (reference)"></td>${cells.join("")}</tr>`;
+  });
+  $("grid").innerHTML = `<table>${head}${rows.join("")}</table>`;
+};
+// click a pair: render and Difix side by side, large
+$("grid").addEventListener("click", (e) => {
+  const td = e.target.closest("td");
+  if (!td) return;
+  $("zoom").innerHTML = [...td.querySelectorAll("img")].map((i) => `<img src="${i.src}">`).join("");
+  $("zoom").hidden = false;
+});
+$("zoom").onclick = () => $("zoom").hidden = true;
+</script>
+</body>
+</html>

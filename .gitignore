@@ -1,0 +1,27 @@
+# Allowlist: only our own code is tracked. Footage, renders, generated views,
+# downloaded models, cloned research repos and licensed assets (SMPL, SMPL-X,
+# Daz Genesis 9) stay out.
+/*
+!/.gitignore
+!/CLAUDE.md
+!/extract.py
+!/recon.py
+!/pyproject.toml
+!/uv.lock
+
+!/gen/
+/gen/*
+!/gen/mv_head.py
+!/gen/comfy.yaml
+!/gen/blueprints/
+
+!/splat/
+/splat/*
+!/splat/prepare.py
+!/splat/train.py
+!/splat/pyproject.toml
+!/splat/uv.lock
+
+!/viewpan/
+
+__pycache__/

@@ -1,0 +1,21 @@
+[project]
+name = "face-splat"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch",
+    "gsplat",
+    "pycolmap",
+    "numpy",
+    "opencv-python-headless",
+    "mediapipe",
+    "tqdm",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
